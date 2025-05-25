@@ -30,10 +30,10 @@ This avoids threads, callbacks, APCs, and traditional API execution paths; using
 | `NtCreateThreadEx`       |    X     |       X        |     X     |                   |                           |     X      |       |
 | `QueueUserAPC`           |    X     |                |     X     |         X         |             X             |     X      |       |
 | `EnumWindows` Callback   |    X     |                |     X     |         X         |                           |     X      |       |
-| Fiber Switching          |          |                |     X     |                   |                           |     X      |   X   |
+| Fiber Switching          |          |                |     X     |                   |                           |     X      |       |
 | Syscall Stubs            |          |       X        |     X     |                   |                           |     X      |       |
-| Manual Map + Trampoline  |          |       X        |     X     |                   |                           |     X      |   X   |
-| **PhantomJIT (This Tool)**|          |                |           |                   |                           |     X      |   X   |
+| Manual Map  |          |       X        |     X     |                   |                           |     X      |       |
+| **PhantomJIT**|          |                |           |                   |                           |     X      |   X   |
 
 X = Applies
 
