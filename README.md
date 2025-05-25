@@ -18,7 +18,7 @@ Allocates RWX pages with `NtAllocateVirtualMemory`, copies arbitrary shellcode, 
 ## Why It’s Unique
 
 PhantomJIT executes shellcode by emitting a JIT-compiled delegate via `System::Reflection::Emit`, directly jumping to the shellcode address with `calli`.  
-This avoids threads, callbacks, APCs, and traditional API execution paths—using the .NET JIT engine itself as the runner.
+This avoids threads, callbacks, APCs, and traditional API execution paths; using the .NET JIT engine itself as the runner.
 
 ---
 
