@@ -29,8 +29,8 @@ X = Applies
 ## How It Works
 
 1. **Load shellcode** – Read bytes from the file passed as the first argument.  
-2. **Resolves exports** – Grab pointers to `NtAllocateVirtualMemory` and `NtProtectVirtualMemory` from *ntdll.dll*.  
-3. **Allocate RWX** – Reserve + commit RWX memory in the current process. (v2 JIT-generates DynamicMethod delegates that invoke VirtualProtect and NtProtectVirtualMemory)
+2. **Resolves exports** – Grab pointers to `NtAllocateVirtualMemory` and `NtProtectVirtualMemory` from *ntdll.dll*.  (**v2 JIT-generates DynamicMethod delegates that invoke NtAllocateVirtualMemory**)
+3. **Allocate RWX** – Reserve + commit RW then -> RWX memory in the current process. (**v2 JIT-generates DynamicMethod delegates that invoke VirtualProtect and NtProtectVirtualMemory**)
 4. **Copy** – `memcpy` the shellcode into the new region.  
 5. **Emit delegate** – Build a `DynamicMethod` whose IL loads the shellcode address and performs a `calli`.  
 6. **Execute** – Cast the dynamic method to `Action` and invoke it.
