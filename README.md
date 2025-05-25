@@ -1,18 +1,7 @@
 # PhantomJIT
 
 **Hybrid C++ in-memory shellcode loader**  
-Allocates RWX pages with `NtAllocateVirtualMemory`, copies arbitrary shellcode, then jumps to it via a JIT-generated delegate—no remote threads, no disk writes, no BS.
-
----
-
-## Key Features
-
-| Capability        | Details                                                                                                     |
-|-------------------|-------------------------------------------------------------------------------------------------------------|
-| Pure user-mode    | Direct NT syscalls; bypasses high-level Win32 hooks.                                                        |
-| RWX allocation    | Single call to `NtAllocateVirtualMemory` with `MEM_COMMIT | MEM_RESERVE` + `PAGE_EXECUTE_READWRITE`.        |
-| Minimal CLR use   | CLR is leveraged only for `System::Reflection::Emit` to build the one-shot delegate.                        |
-| x64 only          | Targets 64-bit Windows processes.                                                                           |
+Allocates RWX pages with `NtAllocateVirtualMemory`, copies arbitrary shellcode, then jumps to it via a JIT-generated delegate. **No remote threads, no disk writes, no BS.**
 
 ---
 ## Why It’s Unique
