@@ -15,6 +15,27 @@ Allocates RWX pages with `NtAllocateVirtualMemory`, copies arbitrary shellcode, 
 | x64 only          | Targets 64-bit Windows processes.                                                                           |
 
 ---
+## Why It’s Unique
+
+PhantomJIT executes shellcode by emitting a JIT-compiled delegate via `System::Reflection::Emit`, directly jumping to the shellcode address with `calli`.  
+This avoids threads, callbacks, APCs, and traditional API execution paths—using the .NET JIT engine itself as the runner.
+
+---
+
+### Comparison to Common Execution Techniques
+
+| Technique                 | Uses API | Creates Thread | Monitored | Requires Callback | Requires Alertable State | RWX Memory | Novel |
+|--------------------------|:--------:|:--------------:|:---------:|:-----------------:|:-------------------------:|:----------:|:-----:|
+| `CreateThread`           |    X     |       X        |     X     |                   |                           |     X      |       |
+| `NtCreateThreadEx`       |    X     |       X        |     X     |                   |                           |     X      |       |
+| `QueueUserAPC`           |    X     |                |     X     |         X         |             X             |     X      |       |
+| `EnumWindows` Callback   |    X     |                |     X     |         X         |                           |     X      |       |
+| Fiber Switching          |          |                |     X     |                   |                           |     X      |   X   |
+| Syscall Stubs            |          |       X        |     X     |                   |                           |     X      |       |
+| Manual Map + Trampoline  |          |       X        |     X     |                   |                           |     X      |   X   |
+| **PhantomJIT (This Tool)**|          |                |           |                   |                           |     X      |   X   |
+
+X = Applies
 
 ## How It Works
 
