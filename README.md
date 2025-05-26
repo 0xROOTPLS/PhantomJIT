@@ -1,7 +1,6 @@
 # PhantomJIT
+**Hybrid C++ in-memory, JIT-generated delegate-based shellcode loader. No remote threads. No disk writes. No BS.**  
 
-**Hybrid C++ in-memory shellcode loader**  
-Allocates RWX pages with `NtAllocateVirtualMemory`, copies arbitrary shellcode, then jumps to it via a JIT-generated delegate. **No remote threads, no disk writes, no BS.**
 
 ---
 ## Why It’s Unique
